@@ -1,0 +1,2 @@
+# W6300-EVA-Pico2_WoL
+WIZnetのW6300-EVA-Pico2に増設した押しボタンでWoLパケットを送信するArduinoスケッチ
