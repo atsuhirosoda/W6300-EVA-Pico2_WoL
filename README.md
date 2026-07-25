@@ -1,6 +1,5 @@
 # W6300-EVA-Pico2_WoL
-WIZnetのW6300-EVA-Pico2に増設した押しボタンでWoLパケットを送信するArduinoスケッチ
-    W6300-EVB-Pico2 有線LAN通信 Wake on LAN (WoL) 送出スケッチ
+WIZnetのW6300-EVA-Pico2に増設した押しボタンでWake on LAN (WoL)パケットを送信するArduinoスケッチ
 
     【概要】
     本スケッチは、W6300-EVB-Pico2（RP2350搭載）を使用し、ネットワーク上の指定した
