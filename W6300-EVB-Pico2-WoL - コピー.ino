@@ -116,6 +116,53 @@ void loop() {
 }
 
 // --------------------------------------------------
+// NTP時刻同期処理
+// --------------------------------------------------
+void syncNtpTime() {
+  Serial.println("[NTP] SNTP時刻同期を開始します(JST)...");
+  // タイムゾーンを日本標準時 (UTC+9、夏時間なし) に明示設定
+  setenv("TZ", "JST-9", 1);
+  tzset();
+  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER1, NTP_SERVER2);
+
+  // 初回時刻取得の待機 (最大10秒)
+  time_t now = time(nullptr);
+  int retry = 0;
+  while (now < 100000 && retry < 20) {
+    delay(500);
+    Serial.print(".");
+    now = time(nullptr);
+    retry++;
+  }
+  Serial.println();
+
+  if (now >= 100000) {
+    Serial.print("[NTP] 同期完了: ");
+    Serial.println(getTimestampString());
+  } else {
+    Serial.println("[NTP] 警告: 時刻同期がタイムアウトしました (バックグラウンドで再試行されます)");
+  }
+}
+
+// --------------------------------------------------
+// 日時文字列の取得関数 [YYYY-MM-DD hh:mm:ss]
+// --------------------------------------------------
+String getTimestampString() {
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  
+  // 有効な時刻が取れていない場合のフォールバック
+  if (now < 100000) {
+    return "[TIME_UNSYNC]";
+  }
+
+  localtime_r(&now, &timeinfo);
+  char buf[32];
+  strftime(buf, sizeof(buf), "[%Y-%m-%d %H:%M:%S]", &timeinfo);
+  return String(buf);
+}
+
+// --------------------------------------------------
 // MQTT受信コールバック & 返信処理
 // --------------------------------------------------
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
