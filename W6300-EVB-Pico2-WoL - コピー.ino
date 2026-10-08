@@ -12,19 +12,48 @@
 */
 
 #include <W6300lwIP.h>
+#include <WiFiClientSecure.h> // lwIP上で動作するTLSクライアント
 #include <WiFiUdp.h>
-#include <hardware/watchdog.h> // RP2350/RP2040のウォッチドッグ用ヘッダー
+#include <PubSubClient.h>     // Arduinoライブラリマネージャーから導入
+#include <hardware/watchdog.h>
+#include <time.h> // 標準C時刻関数
 
-// --- 設定項目 ---
-const uint8_t targetMac[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};  // ターゲットMAC
+// --------------------------------------------------
+// --- WoL設定 ---
+// --------------------------------------------------
+const uint8_t targetMac[6] = {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc}; // ターゲットMAC
 const uint16_t wolPort = 9;                                         // WoLポート
+
+// Adafruit IO 認証設定
+const char* IO_SERVER      = "YOUR MQTT SERVER URL";
+const int   IO_PORT        = 8883;                     // MQTTS (TLS暗号化)
+const char* IO_USERNAME    = "YOUR MQTT USERNAME"; // 要変更
+const char* IO_KEY         = "YOUR MQTT KEY FLASE";      // 要変更
+const char* FEED_NAME_CMD  = "test-wol-cmd";         // Adafruit IO上で作成したFeed名
+const char* FEED_NAME_STAT = "test-wol-status";             // 応答・状態返信用Feed名
+
+// 購読トピック (Sub): {username}/feeds/{feed_name}
+String subscribeTopic = String(IO_USERNAME) + "/feeds/" + String(FEED_NAME_CMD);
+// 返信トピック (Pub): {username}/feeds/{feed_name}
+String publishStatusTopic = String(IO_USERNAME) + "/feeds/" + String(FEED_NAME_STAT);
+
+// NTP設定 (日本標準時: UTC + 9時間 = 32400秒, 夏時間なし: 0)
+const long  GMT_OFFSET_SEC = 9 * 3600;
+const int   DAYLIGHT_OFFSET_SEC = 0;
+const char* NTP_SERVER1 = "ntp.nict.jp";
+const char* NTP_SERVER2 = "time.google.com";
 
 // 一日のミリ秒数 (24時間 = 86,400,000ミリ秒)
 const unsigned long REBOOT_INTERVAL = 86400000UL; 
-unsigned long lastRebootTime = 0; // 起動（または前回リセット）してからの時間保持用
+unsigned long lastRebootTime = 0;
+
+// MQTT再接続の間隔制御用 (ノンブロッキング)
+unsigned long lastMqttReconnectAttempt = 0;
+const unsigned long MQTT_RECONNECT_INTERVAL = 5000;
 
 // --- ピン配置（GPIO 14） ---
-const int BUTTON_PIN = 14; // スイッチ入力ポートを GPIO 14 に設定
+const int BUTTON_PIN = 14;
+const int W6300_RST  = 20; // W6300-EVB-Pico2のリセットピン (GP20)
 
 // --- チャタリング対策用変数 ---
 int lastButtonState = HIGH;
@@ -32,28 +61,51 @@ int currentButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 50;
 
-// チップセレクト(CS)は元の通り GPIO 1 に指定
-Wiznet6300lwIP eth(1 /* chip select */);
+// チップセレクト(CS)は GPIO 16
+Wiznet6300lwIP eth(16 /* chip select */);
 WiFiUDP udp;
+WiFiClientSecure tlsClient;
+PubSubClient mqttClient(tlsClient);
 
+// プロトタイプ宣言
 void sendMagicPacket();
 void performHardwareReboot();
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+boolean reconnectMQTT();
+void sendMqttStatus(const char* statusMsg);
+String getTimestampString();
+void syncNtpTime();
 
+// --------------------------------------------------
+// 初期設定 (setup)
+// --------------------------------------------------
 void setup() {
-  // 元のサンプルスケッチのSPIピン配置（GPIO 0〜3）
-  SPI.setRX(0);
-  SPI.setCS(1);
-  SPI.setSCK(2);
-  SPI.setTX(3);
+  // --------------------------------------------------
+  // 【最重要】W6300 のハードウェアリセット解除処理
+  // --------------------------------------------------
+  pinMode(22, OUTPUT);
+  digitalWrite(22, LOW);   // 一旦リセット状態にする
+  delay(50);
+  digitalWrite(22, HIGH);  // リセット解除 (アクティブLow)
+  delay(200);              // W6300内部クロック・PHYの安定待ち
 
-  // ボタンピンをプルアップ入力に設定 (GPIO 14)
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  Serial.begin(115200);
-  delay(5000);
-  Serial.println("\n\nStarting Ethernet port...");
+  // W6300 ハードウェアリセット制御 (確実にリセット解除する)
+  pinMode(W6300_RST, OUTPUT);
+  digitalWrite(W6300_RST, LOW);
+  delay(10);
+  digitalWrite(W6300_RST, HIGH);
+  delay(100);
 
+
+  Serial.begin(115200);
+  delay(2000);
   // Ethernetポートの起動
+  delay(1000);
+  Serial.println("\n\nStarting Ethernet (W6300 via QSPI)");
+
+  // ここでチップ認識が行われます
   if (!eth.begin()) {
     Serial.println("No wired Ethernet hardware detected. Check pinouts, wiring.");
     while (1) {
@@ -61,22 +113,41 @@ void setup() {
     }
   }
 
+   // Start the Ethernet port
+  Serial.print("Connecting to Ethernet");
+  unsigned long dhcpStart = millis();
   while (!eth.connected()) {
     Serial.print(".");
     delay(500);
+    // 15秒でDHCPタイムアウト
+    if (millis() - dhcpStart > 15000) {
+      Serial.println("\nDHCP Timeout! Check cable connection.");
+      break;
+    }
   }
 
-  Serial.println("\nEthernet connected");
-  Serial.print("IP address: ");
-  Serial.println(eth.localIP());
+  if (eth.connected()) {
+    Serial.println("\nEthernet connected");
+    Serial.print("IP address: ");
+    Serial.println(eth.localIP());
+  }
 
-  // UDPのローカルポートを開始
+  // UDPのローカルポートを開始 (WoL用)
   udp.begin(wolPort);
-  
-  // タイマーの起点を記録
+
+  // NTP時刻同期の開始
+  syncNtpTime();
+
+  // TLS設定 (証明書検証の簡略化)
+  tlsClient.setInsecure();
+
+  // MQTTクライアント設定
+  mqttClient.setServer(IO_SERVER, IO_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+
   lastRebootTime = millis();
-  
-  Serial.println("Ready. Press the button (GPIO 14) to send WoL. Auto-reboot scheduled every 24 hours.");
+  Serial.println("Ready. Ready for Button or MQTT triggers.");
 }
 
 // --------------------------------------------------
