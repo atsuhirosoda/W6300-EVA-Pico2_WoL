@@ -115,7 +115,53 @@ void loop() {
   lastButtonState = reading;
 }
 
-// --- WoLマジックパケット送信関数 ---
+// --------------------------------------------------
+// ステータス・ACK返信関数 (日時文字列を自動付加)
+// --------------------------------------------------
+void sendMqttStatus(const char* statusMsg) {
+  if (mqttClient.connected()) {
+    // 日時文字列をプレフィックスとして結合
+    String fullMessage = getTimestampString() + " " + String(statusMsg);
+
+    Serial.print("[MQTT] 返信送信中 -> ");
+    Serial.print(publishStatusTopic);
+    Serial.print(" : ");
+    Serial.println(fullMessage);
+    
+    // ステータスフィードへパブリッシュ
+    mqttClient.publish(publishStatusTopic.c_str(), fullMessage.c_str());
+  } else {
+    Serial.println("[MQTT] 返信失敗 (MQTT未接続)");
+  }
+}
+
+// --------------------------------------------------
+// MQTT非同期再接続
+// --------------------------------------------------
+boolean reconnectMQTT() {
+  Serial.print("[MQTT] Connecting to Adafruit IO...");
+  
+  String clientId = "W6300-Pico2-" + String(random(0xffff), HEX);
+  
+  if (mqttClient.connect(clientId.c_str(), IO_USERNAME, IO_KEY)) {
+    Serial.println(" Connected!");
+    mqttClient.subscribe(subscribeTopic.c_str());
+    Serial.print("[MQTT] Subscribed to: ");
+    Serial.println(subscribeTopic);
+    
+    // 起動/再接続時の生存通知 (日時付き)
+    sendMqttStatus("ONLINE: RP2350 Ready");
+    return true;
+  } else {
+    Serial.print(" Failed, rc=");
+    Serial.println(mqttClient.state());
+    return false;
+  }
+}
+
+// --------------------------------------------------
+// WoLマジックパケット送信関数
+// --------------------------------------------------
 void sendMagicPacket() {
   Serial.println("Preparing Wake on LAN Magic Packet...");
 
@@ -143,11 +189,15 @@ void sendMagicPacket() {
   Serial.println("Magic Packet sent successfully.");
 }
 
-// --- ウォッチドッグタイマーによる安全なハードウェア再起動 ---
+// --------------------------------------------------
+// ウォッチドッグタイマーによる安全なハードウェア再起動
+// --------------------------------------------------
 void performHardwareReboot() {
   Serial.println("24 hours passed. Performing scheduled hardware reboot...");
+  sendMqttStatus("REBOOT: Scheduled daily restart");
+  mqttClient.loop(); // 送信完了を待つ
   Serial.flush();
-  delay(100);
+  delay(200);
 
   watchdog_enable(1, 1);
   while (1) {
