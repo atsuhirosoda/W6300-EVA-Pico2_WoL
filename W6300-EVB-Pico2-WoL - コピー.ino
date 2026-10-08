@@ -1,18 +1,14 @@
 /*
-    W6300-EVB-Pico2 有線LAN通信 Wake on LAN (WoL) 送出スケッチ
-
-    【概要】
-    本スケッチは、W6300-EVB-Pico2（RP2350搭載）を使用し、ネットワーク上の指定した
-    PCへWake on LAN (WoL) マジックパケットを送信するためのプログラムです。
+    W6300-EVB-Pico2 有線LAN通信 Wake on LAN (WoL) 送出スケッチ 
+    + Adafruit IO MQTT連携 & NTP時刻付与返信(ACK)機能
 
     【主な機能】
-    1. ボタン操作によるWoL送出:
-       GPIO 14ピンを内部プルアップ入力に設定しています。このピンをタクトスイッチ等で
-       GNDに落とす（Lにする）と、チャタリングを防止しつつ、指定したMACアドレス宛てに
-       UDPブロードキャストでマジックパケットを1回送出します。
-    2. 定期的な自動再起動:
-       システムの長期安定稼働を目的として、millis()タイマーとウォッチドッグタイマー(WDT)を
-       組み合わせ、おおむね24時間に1回の頻度でボード自体を自動的にハードウェア再起動します。
+    1. NTPサーバー (ntp.nict.jp) との時刻同期 (JST: UTC+9)
+    2. ボタン操作 (GPIO 14) によるWoL送出
+    3. Adafruit IO (MQTT) からの遠隔コマンド受信によるWoL送出
+    4. コマンド受領時、Adafruit IOへ日時付きステータス/ACKを返信 (Publish)
+       形式: "[YYYY-MM-DD hh:mm:ss] ACK: WoL packet successfully sent"
+    5. 約24時間に1回のハードウェア自動再起動 (WDT)
 */
 
 #include <W6300lwIP.h>
