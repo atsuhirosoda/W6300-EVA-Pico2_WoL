@@ -116,6 +116,39 @@ void loop() {
 }
 
 // --------------------------------------------------
+// MQTT受信コールバック & 返信処理
+// --------------------------------------------------
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  message.trim();
+
+  Serial.println("\n========================================");
+  Serial.print("[MQTT] 受信トピック: ");
+  Serial.println(topic);
+  Serial.print("[MQTT] ペイロード: ");
+  Serial.println(message);
+  Serial.println("========================================");
+
+  // コマンド判定 (WOL, ON, 1, RUN 等に対応)
+  if (message.equalsIgnoreCase("WOL") || message.equalsIgnoreCase("ON") || message == "1") {
+    Serial.println("[MQTT Command] WoL送出要求を認識しました。");
+    
+    // 1. WoLマジックパケットを送出
+    sendMagicPacket();
+    
+    // 2. 送信元（Adafruit IO）へ受領・完了通知を返信
+    sendMqttStatus("ACK: WoL packet successfully sent");
+  } else {
+    Serial.println("[MQTT Command] 未知のコマンドのためスキップします。");
+    String rejectMsg = "REJECT: Unknown command '" + message + "'";
+    sendMqttStatus(rejectMsg.c_str());
+  }
+}
+
+// --------------------------------------------------
 // ステータス・ACK返信関数 (日時文字列を自動付加)
 // --------------------------------------------------
 void sendMqttStatus(const char* statusMsg) {
