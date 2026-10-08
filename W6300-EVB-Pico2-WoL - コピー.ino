@@ -79,6 +79,9 @@ void setup() {
   Serial.println("Ready. Press the button (GPIO 14) to send WoL. Auto-reboot scheduled every 24 hours.");
 }
 
+// --------------------------------------------------
+// メインループ (loop)
+// --------------------------------------------------
 void loop() {
   unsigned long currentMillis = millis();
 
@@ -87,7 +90,19 @@ void loop() {
     performHardwareReboot();
   }
 
-  // 2. ボタン入力とチャタリング対策
+  // 2. MQTT接続の維持・処理
+  if (!mqttClient.connected()) {
+    if (currentMillis - lastMqttReconnectAttempt >= MQTT_RECONNECT_INTERVAL) {
+      lastMqttReconnectAttempt = currentMillis;
+      if (reconnectMQTT()) {
+        lastMqttReconnectAttempt = 0;
+      }
+    }
+  } else {
+    mqttClient.loop();
+  }
+
+  // 3. ボタン入力とチャタリング対策
   int reading = digitalRead(BUTTON_PIN);
 
   if (reading != lastButtonState) {
@@ -98,15 +113,13 @@ void loop() {
     if (reading != currentButtonState) {
       currentButtonState = reading;
 
-      // ボタンが押されてLOW（L）になった瞬間
       if (currentButtonState == LOW) {
-        // シリアルへ明示的なメッセージを送信
         Serial.println("\n========================================");
         Serial.println("[BUTTON] スイッチの押し下げを検知しました。");
         Serial.println("========================================");
         
-        // WoLパケット送信処理へ
         sendMagicPacket();
+        sendMqttStatus("LOCAL_BUTTON: WoL packet sent");
         delay(500); // 連打防止
       }
     }
