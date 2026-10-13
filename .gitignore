@@ -1,0 +1,10 @@
+# Private configuration file containing credentials
+config.h
+
+# Build artifacts and temp files
+*.o
+*.elf
+*.bin
+*.hex
+.build/
+build/

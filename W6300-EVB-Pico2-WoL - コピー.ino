@@ -16,21 +16,17 @@
 #include <WiFiUdp.h>
 #include <PubSubClient.h>     // Arduinoライブラリマネージャーから導入
 #include <hardware/watchdog.h>
+#include <hardware/regs/rosc.h>
+#include <hardware/structs/rosc.h>
+#include <pico/unique_id.h>
 #include <time.h> // 標準C時刻関数
 
-// --------------------------------------------------
-// --- WoL設定 ---
-// --------------------------------------------------
-const uint8_t targetMac[6] = {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc}; // ターゲットMAC
-const uint16_t wolPort = 9;                                         // WoLポート
-
-// Adafruit IO 認証設定
-const char* IO_SERVER      = "YOUR MQTT SERVER URL";
-const int   IO_PORT        = 8883;                     // MQTTS (TLS暗号化)
-const char* IO_USERNAME    = "YOUR MQTT USERNAME"; // 要変更
-const char* IO_KEY         = "YOUR MQTT KEY FLASE";      // 要変更
-const char* FEED_NAME_CMD  = "test-wol-cmd";         // Adafruit IO上で作成したFeed名
-const char* FEED_NAME_STAT = "test-wol-status";             // 応答・状態返信用Feed名
+// 外部設定ファイルの読み込み (config.h がない場合は config.h.example をフォールバック利用)
+#if __has_include("config.h")
+#include "config.h"
+#else
+#include "config.h.example"
+#endif
 
 // 購読トピック (Sub): {username}/feeds/{feed_name}
 String subscribeTopic = String(IO_USERNAME) + "/feeds/" + String(FEED_NAME_CMD);
@@ -40,8 +36,6 @@ String publishStatusTopic = String(IO_USERNAME) + "/feeds/" + String(FEED_NAME_S
 // NTP設定 (日本標準時: UTC + 9時間 = 32400秒, 夏時間なし: 0)
 const long  GMT_OFFSET_SEC = 9 * 3600;
 const int   DAYLIGHT_OFFSET_SEC = 0;
-const char* NTP_SERVER1 = "ntp.nict.jp";
-const char* NTP_SERVER2 = "time.google.com";
 
 // 一日のミリ秒数 (24時間 = 86,400,000ミリ秒)
 const unsigned long REBOOT_INTERVAL = 86400000UL; 
@@ -50,6 +44,10 @@ unsigned long lastRebootTime = 0;
 // MQTT再接続の間隔制御用 (ノンブロッキング)
 unsigned long lastMqttReconnectAttempt = 0;
 const unsigned long MQTT_RECONNECT_INTERVAL = 5000;
+
+// WoLコマンド連投防止 (レートリミット / 冷却期間)
+unsigned long lastWolCmdTime = 0;
+const unsigned long WOL_COOLDOWN_MS = 10000; // 10秒間のクールダウン
 
 // --- ピン配置（GPIO 14） ---
 const int BUTTON_PIN = 14;
@@ -135,11 +133,24 @@ void setup() {
   // UDPのローカルポートを開始 (WoL用)
   udp.begin(wolPort);
 
+  // エントロピーシード初期化 (RP2040/RP2350 ROSCランダムビット + ボード固有ID)
+  pico_unique_id_t unique_id;
+  pico_get_unique_id(&unique_id);
+  uint32_t seed = 0;
+  for (int i = 0; i < PICO_UNIQUE_ID_SIZE_BYTES; i++) {
+    seed = (seed << 8) | unique_id.id[i];
+  }
+  for (int i = 0; i < 32; i++) {
+    seed ^= ((rosc_hw->randombit & 1) << (i % 32));
+  }
+  seed ^= micros();
+  randomSeed(seed);
+
   // NTP時刻同期の開始
   syncNtpTime();
 
-  // TLS設定 (証明書検証の簡略化)
-  tlsClient.setInsecure();
+  // TLS設定 (Root CA証明書による検証)
+  tlsClient.setCACert(ROOT_CA_CERT);
 
   // MQTTクライアント設定
   mqttClient.setServer(IO_SERVER, IO_PORT);
@@ -265,6 +276,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   // コマンド判定 (WOL, ON, 1, RUN 等に対応)
   if (message.equalsIgnoreCase("WOL") || message.equalsIgnoreCase("ON") || message == "1") {
+    unsigned long nowMs = millis();
+    if (nowMs - lastWolCmdTime < WOL_COOLDOWN_MS && lastWolCmdTime != 0) {
+      Serial.println("[MQTT Command] 警告: クールダウン期間中のためWoL送出を拒否しました。");
+      sendMqttStatus("RATE_LIMIT: Command ignored (cooldown active)");
+      return;
+    }
+
+    lastWolCmdTime = nowMs;
     Serial.println("[MQTT Command] WoL送出要求を認識しました。");
     
     // 1. WoLマジックパケットを送出
@@ -305,7 +324,7 @@ void sendMqttStatus(const char* statusMsg) {
 boolean reconnectMQTT() {
   Serial.print("[MQTT] Connecting to Adafruit IO...");
   
-  String clientId = "W6300-Pico2-" + String(random(0xffff), HEX);
+  String clientId = "W6300-Pico2-" + String(random(0x10000, 0x7FFFFFFF), HEX);
   
   if (mqttClient.connect(clientId.c_str(), IO_USERNAME, IO_KEY)) {
     Serial.println(" Connected!");
