@@ -1,0 +1,3 @@
+#ifndef HARDWARE_REGS_ROSC_H
+#define HARDWARE_REGS_ROSC_H
+#endif
