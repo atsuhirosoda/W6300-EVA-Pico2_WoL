@@ -1,0 +1,40 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// --- MAC Address & Network Settings ---
+// Target PC MAC address to wake up
+const uint8_t targetMac[6] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
+const uint16_t wolPort = 9;
+
+// --- Adafruit IO / MQTT Settings ---
+const char* IO_SERVER      = "io.adafruit.com";
+const int   IO_PORT        = 8883;                     // MQTTS (TLS encrypted)
+const char* IO_USERNAME    = "YOUR_ADAFRUIT_IO_USERNAME";
+const char* IO_KEY         = "YOUR_ADAFRUIT_IO_KEY";
+const char* FEED_NAME_CMD  = "test-wol-cmd";         // Subscribed Feed name
+const char* FEED_NAME_STAT = "test-wol-status";      // Response/Status Feed name
+
+// --- NTP Settings ---
+const char* NTP_SERVER1 = "ntp.nict.jp";
+const char* NTP_SERVER2 = "time.google.com";
+
+// --- TLS Root CA Certificate ---
+// Root CA Certificate for server validation (e.g., DigiCert Global Root G2 for Adafruit IO)
+const char* ROOT_CA_CERT = \
+  "-----BEGIN CERTIFICATE-----\n" \
+  "MIIDjjCCAnagAwIBAgIQAzRx502P85WBHrqmByfNMjANBgkqhkiG9w0BAQsFADBh\n" \
+  "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n" \
+  "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExREaWdpQ2VydCBHbG9iYWwgUm9vdCBH\n" \
+  "MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT\n" \
+  "MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\n" \
+  "b20xIDAeBgNVBAMTFERpZ2lDZXJ0IEdsb2JhbCBSb290IEcyNDCCASIwDQYJKoZI\n" \
+  "hvcNAQEBBQADggEPADCCAQoCggEBAL20Cl11R2z5TMcWpEL813hHl2O8GvJc+tF+\n" \
+  "bXgA4y83L9N6mK3j8V8pGgJ6rZpZq3r7O9Oa7Q2y1B8I2r8i/k5l6M1jY8V6mX/s\n" \
+  "e2uMv9X2c7X+r4p2kX2X5c5Z+8qZ3q8X4u5f8Z2n9X5+2X2v+8Z2f2X8Z2n9X5+2\n" \
+  "X2v+8Z2f2X8Z2n9X5+2X2v+8Z2f2X8Z2n9X5+2X2v+8Z2f2X8Z2n9X5+2X2v+8Z2\n" \
+  "f2X8Z2n9X5+2X2v+8Z2f2X8Z2n9X5+2X2v+8Z2f2X8Z2n9X5+2AgMBAAGjQjBAMA4G\n" \
+  "A1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBS9135P/M+\n" \
+  "394xIIn10/IqBwB9m4TANBgkqhkiG9w0BAQsFAAOCAQEAu... (Replace with actual Root CA cert)\n" \
+  "-----END CERTIFICATE-----\n";
+
+#endif // CONFIG_H
